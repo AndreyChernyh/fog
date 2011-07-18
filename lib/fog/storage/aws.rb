@@ -249,7 +249,7 @@ module Fog
             @port   = options[:port]      || 443
             @scheme = options[:scheme]    || 'https'
             unless options.has_key?(:persistent)
-              options[:persistent] = true
+              options[:persistent] = false
             end
           end
           @connection = Fog::Connection.new("#{@scheme}://#{@host}:#{@port}#{@path}", options[:persistent])
