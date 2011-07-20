@@ -30,17 +30,30 @@ module Fog
         # http://docs.amazonwebservices.com/AmazonS3/latest/API/RESTObjectPUT.html
         #
         def put_object(bucket_name, object_name, data, options = {})
+          max_retries, tries = 3, 0
+
           data = Fog::Storage.parse_data(data)
           headers = data[:headers].merge!(options)
-          request({
-            :body       => data[:body],
-            :expects    => 200,
-            :headers    => headers,
-            :host       => "#{bucket_name}.#{@host}",
-            :idempotent => true,
-            :method     => 'PUT',
-            :path       => CGI.escape(object_name)
-          })
+
+          begin
+            request({
+              :body       => data[:body],
+              :expects    => 200,
+              :headers    => headers,
+              :host       => "#{bucket_name}.#{@host}",
+              :idempotent => true,
+              :method     => 'PUT',
+              :path       => CGI.escape(object_name)
+            })
+          rescue Excon::Errors::SocketError => err
+            tries += 1
+            if tries < max_retries
+              sleep 5
+              retry
+            else
+              raise
+            end
+          end
         end
 
       end

@@ -24,21 +24,28 @@ module Fog
       collection  :tags
       model       :volume
       collection  :volumes
+      model       :spot_request
+      collection  :spot_requests
 
       request_path 'fog/compute/requests/aws'
       request :allocate_address
       request :associate_address
       request :attach_volume
       request :authorize_security_group_ingress
+      request :cancel_spot_instance_requests
       request :create_image
       request :create_key_pair
+      request :create_placement_group
       request :create_security_group
       request :create_snapshot
+      request :create_spot_datafeed_subscription
       request :create_tags
       request :create_volume
       request :delete_key_pair
       request :delete_security_group
+      request :delete_placement_group
       request :delete_snapshot
+      request :delete_spot_datafeed_subscription
       request :delete_tags
       request :delete_volume
       request :deregister_image
@@ -48,10 +55,14 @@ module Fog
       request :describe_instances
       request :describe_reserved_instances
       request :describe_key_pairs
+      request :describe_placement_groups
       request :describe_regions
       request :describe_reserved_instances_offerings
       request :describe_security_groups
       request :describe_snapshots
+      request :describe_spot_datafeed_subscription
+      request :describe_spot_instance_requests
+      request :describe_spot_price_history
       request :describe_tags
       request :describe_volumes
       request :detach_volume
@@ -61,9 +72,11 @@ module Fog
       request :import_key_pair
       request :modify_image_attributes
       request :modify_snapshot_attribute
+      request :purchase_reserved_instances_offering
       request :reboot_instances
       request :release_address
       request :register_image
+      request :request_spot_instances
       request :revoke_security_group_ingress
       request :run_instances
       request :terminate_instances
@@ -83,6 +96,7 @@ module Fog
                 :addresses  => {},
                 :images     => {},
                 :instances  => {},
+                :reserved_instances => {},
                 :key_pairs  => {},
                 :limits     => { :addresses => 5 },
                 :owner_id   => owner_id,
@@ -129,8 +143,6 @@ module Fog
         end
 
         def initialize(options={})
-          require 'fog/compute/parsers/aws/basic'
-
           @aws_access_key_id = options[:aws_access_key_id]
 
           @region = options[:region] || 'us-east-1'
@@ -249,7 +261,7 @@ module Fog
               :host               => @host,
               :path               => @path,
               :port               => @port,
-              :version            => '2010-08-31'
+              :version            => '2011-05-15'
             }
           )
 
@@ -266,7 +278,7 @@ module Fog
           rescue Excon::Errors::HTTPStatusError => error
             if match = error.message.match(/<Code>(.*)<\/Code><Message>(.*)<\/Message>/)
               raise case match[1].split('.').last
-              when 'NotFound'
+              when 'NotFound', 'Unknown'
                 Fog::Compute::AWS::NotFound.slurp(error, match[2])
               else
                 Fog::Compute::AWS::Error.slurp(error, "#{match[1]} => #{match[2]}")

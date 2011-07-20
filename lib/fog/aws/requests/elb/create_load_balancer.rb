@@ -47,7 +47,62 @@ module Fog
             :parser            => Fog::Parsers::AWS::ELB::CreateLoadBalancer.new
           }.merge!(params))
         end
+      end
 
+      class Mock
+        def create_load_balancer(availability_zones, lb_name, listeners = [])
+          response = Excon::Response.new
+          response.status = 200
+
+          raise Fog::AWS::ELB::IdentifierTaken if self.data[:load_balancers].has_key? lb_name
+
+          certificate_ids = Fog::AWS::IAM.new.list_server_certificates.body['Certificates'].collect { |c| c['Arn'] }
+
+          listeners = [*listeners].map do |listener|
+            if listener['SSLCertificateId'] and !certificate_ids.include? listener['SSLCertificateId']
+              raise Fog::AWS::IAM::NotFound.new('CertificateNotFound')
+            end
+            {'Listener' => listener, 'PolicyNames' => []}
+          end
+
+          dns_name = Fog::AWS::ELB::Mock.dns_name(lb_name, @region)
+          self.data[:load_balancers][lb_name] = {
+            'AvailabilityZones' => availability_zones,
+            'CanonicalHostedZoneName' => '',
+            'CanonicalHostedZoneNameID' => '',
+            'CreatedTime' => Time.now,
+            'DNSName' => dns_name,
+            'HealthCheck' => {
+              'HealthyThreshold' => 10,
+              'Timeout' => 5,
+              'UnhealthyThreshold' => 2,
+              'Interval' => 30,
+              'Target' => 'TCP:80'
+            },
+            'Instances' => [],
+            'ListenerDescriptions' => listeners,
+            'LoadBalancerName' => lb_name,
+            'Policies' => {
+              'LBCookieStickinessPolicies' => [],
+              'AppCookieStickinessPolicies' => []
+            },
+            'SourceSecurityGroup' => {
+              'GroupName' => '',
+              'OwnerAlias' => ''
+            }
+          }
+
+          response.body = {
+            'ResponseMetadata' => {
+              'RequestId' => Fog::AWS::Mock.request_id
+            },
+            'CreateLoadBalancerResult' => {
+              'DNSName' => dns_name
+            }
+          }
+
+          response
+        end
       end
     end
   end

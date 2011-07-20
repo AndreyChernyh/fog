@@ -1,21 +1,25 @@
 require 'fog/core'
-require 'fog/core/parser'
 require 'openssl' # For RSA key pairs
+require 'base64' # For console output
 
 module Fog
   module AWS
 
     extend Fog::Provider
 
+    service(:auto_scaling,    'aws/auto_scaling')
     service(:cdn,             'cdn/aws')
     service(:compute,         'compute/aws')
     service(:cloud_formation, 'aws/cloud_formation')
+    service(:cloud_watch,     'aws/cloud_watch')
     service(:dns,             'dns/aws')
     service(:elb,             'aws/elb')
     service(:iam,             'aws/iam')
     service(:rds,             'aws/rds')
     service(:ses,             'aws/ses')
     service(:simpledb,        'aws/simpledb')
+    service(:sns,             'aws/sns')
+    service(:sqs,             'aws/sqs')
     service(:storage,         'storage/aws')
 
     def self.indexed_param(key, values)
@@ -43,7 +47,9 @@ module Fog
     end
 
     def self.escape(string)
-      string.gsub( /([^-a-zA-Z0-9_.~]+)/n ) { |match| '%' + match.unpack( 'H2' * match.size ).join( '%' ).upcase }
+      string.gsub(/([^a-zA-Z0-9_.\-~]+)/) {
+        "%" + $1.unpack("H2" * $1.bytesize).join("%").upcase
+      }
     end
 
     def self.signed_params(params, options = {})
@@ -70,12 +76,21 @@ module Fog
 
     class Mock
 
+      def self.arn(vendor, account_id, path, region = nil)
+        "arn:aws:#{vendor}:#{region}:#{account_id}:#{path}"
+      end
+
       def self.availability_zone(region)
         "#{region}#{Fog::Mock.random_selection('abcd', 1)}"
       end
 
       def self.box_usage
         sprintf("%0.10f", rand / 100).to_f
+      end
+
+      def self.console_output
+        # "[ 0.000000] Linux version 2.6.18-xenU-ec2-v1.2 (root@domU-12-31-39-07-51-82) (gcc version 4.1.2 20070626 (Red Hat 4.1.2-13)) #2 SMP Wed Aug 19 09:04:38 EDT 2009"
+        Base64.decode64("WyAwLjAwMDAwMF0gTGludXggdmVyc2lvbiAyLjYuMTgteGVuVS1lYzItdjEu\nMiAocm9vdEBkb21VLTEyLTMxLTM5LTA3LTUxLTgyKSAoZ2NjIHZlcnNpb24g\nNC4xLjIgMjAwNzA2MjYgKFJlZCBIYXQgNC4xLjItMTMpKSAjMiBTTVAgV2Vk\nIEF1ZyAxOSAwOTowNDozOCBFRFQgMjAwOQ==\n")
       end
 
       def self.dns_name_for(ip_address)
@@ -161,6 +176,10 @@ module Fog
         request_id << Fog::Mock.random_hex(12)
         request_id.join('-')
       end
+      class << self
+        alias :reserved_instances_id :request_id
+        alias :reserved_instances_offering_id :request_id
+      end
 
       def self.reservation_id
         "r-#{Fog::Mock.random_hex(8)}"
@@ -173,7 +192,6 @@ module Fog
       def self.volume_id
         "vol-#{Fog::Mock.random_hex(8)}"
       end
-
     end
   end
 end

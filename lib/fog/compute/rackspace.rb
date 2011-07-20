@@ -58,6 +58,7 @@ module Fog
         end
 
         def initialize(options={})
+          require 'multi_json'
           @rackspace_username = options[:rackspace_username]
         end
 
@@ -74,7 +75,7 @@ module Fog
       class Real
 
         def initialize(options={})
-          require 'json'
+          require 'multi_json'
           @rackspace_api_key = options[:rackspace_api_key]
           @rackspace_username = options[:rackspace_username]
           @rackspace_auth_url = options[:rackspace_auth_url]
@@ -93,7 +94,7 @@ module Fog
 
         def request(params)
           begin
-            response = @connection.request(params.merge!({
+            response = @connection.request(params.merge({
               :headers  => {
                 'Content-Type' => 'application/json',
                 'X-Auth-Token' => @auth_token
@@ -103,11 +104,11 @@ module Fog
               :query    => ('ignore_awful_caching' << Time.now.to_i.to_s)
             }))
           rescue Excon::Errors::Unauthorized => error
-            if JSON.parse(response.body)['unauthorized']['message'] == 'Invalid authentication token.  Please renew.'
+            if error.response.body != 'Bad username or password' # token expiration
               @rackspace_must_reauthenticate = true
               authenticate
               retry
-            else
+            else # bad credentials
               raise error
             end
           rescue Excon::Errors::HTTPStatusError => error
@@ -119,7 +120,7 @@ module Fog
             end
           end
           unless response.body.empty?
-            response.body = JSON.parse(response.body)
+            response.body = ::MultiJson.decode(response.body)
           end
           response
         end
@@ -127,7 +128,7 @@ module Fog
         private
 
         def authenticate
-          if @rackspace_must_reauthenticate or @rackspace_auth_token.empty?
+          if @rackspace_must_reauthenticate || @rackspace_auth_token.nil?
             options = {
               :rackspace_api_key  => @rackspace_api_key,
               :rackspace_username => @rackspace_username,

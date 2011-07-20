@@ -23,7 +23,7 @@ module Fog
       request :disable_availability_zones_for_load_balancer
       request :enable_availability_zones_for_load_balancer
       request :register_instances_with_load_balancer
-      #request :set_load_balancer_listener_ssl_certificate
+      request :set_load_balancer_listener_ssl_certificate
       request :set_load_balancer_policies_of_listener
 
       model_path 'fog/aws/models/elb'
@@ -36,10 +36,43 @@ module Fog
 
       class Mock
 
-        def initialize(options={})
-          Fog::Mock.not_implemented
+        def self.data
+          @data ||= Hash.new do |hash, region|
+            owner_id = Fog::AWS::Mock.owner_id
+            hash[region] = Hash.new do |region_hash, key|
+              region_hash[key] = {
+                :owner_id => owner_id,
+                :load_balancers => {}
+              }
+            end
+          end
         end
 
+        def self.dns_name(name, region)
+          "#{name}-#{Fog::Mock.random_hex(8)}.#{region}.elb.amazonaws.com"
+        end
+
+        def self.reset
+          @data = nil
+        end
+
+        def initialize(options={})
+          @aws_access_key_id = options[:aws_access_key_id]
+
+          @region = options[:region] || 'us-east-1'
+
+          unless ['ap-northeast-1', 'ap-southeast-1', 'eu-west-1', 'us-east-1', 'us-west-1'].include?(@region)
+            raise ArgumentError, "Unknown region: #{@region.inspect}"
+          end
+        end
+
+        def data
+          self.class.data[@region][@aws_access_key_id]
+        end
+
+        def reset_data
+          self.class.data[@region].delete(@aws_access_key_id)
+        end
       end
 
       class Real
@@ -111,34 +144,33 @@ module Fog
               :version            => '2011-04-05'
           }
           )
-          begin
-            response = @connection.request({
-              :body       => body,
-              :expects    => 200,
-              :headers    => { 'Content-Type' => 'application/x-www-form-urlencoded' },
-              :idempotent => idempotent,
-              :host       => @host,
-              :method     => 'POST',
-              :parser     => parser
-            })
-          rescue Excon::Errors::HTTPStatusError => error
-            if match = error.message.match(/<Code>(.*)<\/Code>/m)
-              case match[1]
-              when 'LoadBalancerNotFound'
-                raise Fog::AWS::ELB::NotFound
-              when 'DuplicateLoadBalancerName'
-                raise Fog::AWS::ELB::IdentifierTaken
-              when 'InvalidInstance'
-                raise Fog::AWS::ELB::InvalidInstance
-              else
-                raise
-              end
+
+          response = @connection.request({
+            :body       => body,
+            :expects    => 200,
+            :headers    => { 'Content-Type' => 'application/x-www-form-urlencoded' },
+            :idempotent => idempotent,
+            :host       => @host,
+            :method     => 'POST',
+            :parser     => parser
+          })
+        rescue Excon::Errors::HTTPStatusError => error
+          if match = error.message.match(/<Code>(.*)<\/Code>(?:.*<Message>(.*)<\/Message>)?/m)
+            case match[1]
+            when 'CertificateNotFound'
+              raise Fog::AWS::IAM::NotFound.slurp(error, match[2])
+            when 'LoadBalancerNotFound'
+              raise Fog::AWS::ELB::NotFound.slurp(error, match[2])
+            when 'DuplicateLoadBalancerName'
+              raise Fog::AWS::ELB::IdentifierTaken.slurp(error, match[2])
+            when 'InvalidInstance'
+              raise Fog::AWS::ELB::InvalidInstance.slurp(error, match[2])
             else
               raise
             end
+          else
+            raise
           end
-
-          response
         end
       end
     end

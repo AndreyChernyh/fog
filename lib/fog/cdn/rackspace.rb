@@ -42,16 +42,24 @@ module Fog
       class Real
 
         def initialize(options={})
-          require 'json'
+          require 'multi_json'
           credentials = Fog::Rackspace.authenticate(options)
           @auth_token = credentials['X-Auth-Token']
+          @enabled = false
 
-          uri = URI.parse(credentials['X-CDN-Management-Url'])
-          @host   = uri.host
-          @path   = uri.path
-          @port   = uri.port
-          @scheme = uri.scheme
-          @connection = Fog::Connection.new("#{@scheme}://#{@host}:#{@port}", options[:persistent])
+          if credentials['X-CDN-Management-Url']
+            uri = URI.parse(credentials['X-CDN-Management-Url'])
+            @host   = uri.host
+            @path   = uri.path
+            @port   = uri.port
+            @scheme = uri.scheme
+            @connection = Fog::Connection.new("#{@scheme}://#{@host}:#{@port}", options[:persistent])
+            @enabled = true
+          end
+        end
+
+        def enabled?
+          @enabled
         end
 
         def reload
@@ -77,7 +85,7 @@ module Fog
             end
           end
           if !response.body.empty? && parse_json && response.headers['Content-Type'] =~ %r{application/json}
-            response.body = JSON.parse(response.body)
+            response.body = ::MultiJson.decode(response.body)
           end
           response
         end

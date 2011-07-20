@@ -2,16 +2,23 @@ module Fog
   module AWS
     class IAM < Fog::Service
 
+      class EntityAlreadyExists < Fog::AWS::IAM::Error; end
+      class KeyPairMismatch < Fog::AWS::IAM::Error; end
+      class LimitExceeded < Fog::AWS::IAM::Error; end
+      class MalformedCertificate < Fog::AWS::IAM::Error; end
+
       requires :aws_access_key_id, :aws_secret_access_key
       recognizes :host, :path, :port, :scheme, :persistent
 
       request_path 'fog/aws/requests/iam'
       request :add_user_to_group
       request :create_access_key
+      request :create_account_alias
       request :create_group
       request :create_user
       request :create_login_profile
       request :delete_access_key
+      request :delete_account_alias
       request :delete_group
       request :delete_group_policy
       request :delete_login_profile
@@ -23,7 +30,10 @@ module Fog
       request :get_user
       request :get_user_policy
       request :get_group
+      request :get_group_policy
+      request :get_server_certificate
       request :list_access_keys
+      request :list_account_aliases
       request :list_groups
       request :list_groups_for_user
       request :list_group_policies
@@ -43,11 +53,34 @@ module Fog
       request :upload_signing_certificate
 
       class Mock
-
-        def initialize(options={})
-          Fog::Mock.not_implemented
+        def self.data
+          @data ||= Hash.new do |hash, key|
+            hash[key] = {
+              :owner_id => Fog::AWS::Mock.owner_id,
+              :server_certificates => {}
+            }
+          end
         end
 
+        def self.reset
+          @data = nil
+        end
+
+        def self.server_certificate_id
+          Fog::Mock.random_hex(16)
+        end
+
+        def initialize(options={})
+          @aws_access_key_id = options[:aws_access_key_id]
+        end
+
+        def data
+          self.class.data[@aws_access_key_id]
+        end
+
+        def reset_data
+          self.class.data.delete(@aws_access_key_id)
+        end
       end
 
       class Real
@@ -71,7 +104,7 @@ module Fog
         # * IAM object with connection to AWS.
         def initialize(options={})
           require 'fog/core/parser'
-          require 'json'
+          require 'multi_json'
 
           @aws_access_key_id      = options[:aws_access_key_id]
           @aws_secret_access_key  = options[:aws_secret_access_key]
@@ -105,17 +138,41 @@ module Fog
             }
           )
 
-          response = @connection.request({
-            :body       => body,
-            :expects    => 200,
-            :idempotent => idempotent,
-            :headers    => { 'Content-Type' => 'application/x-www-form-urlencoded' },
-            :host       => @host,
-            :method     => 'POST',
-            :parser     => parser
-          })
+          begin
+            response = @connection.request({
+              :body       => body,
+              :expects    => 200,
+              :idempotent => idempotent,
+              :headers    => { 'Content-Type' => 'application/x-www-form-urlencoded' },
+              :host       => @host,
+              :method     => 'POST',
+              :parser     => parser
+            })
 
-          response
+            response
+          rescue Excon::Errors::HTTPStatusError => error
+            if match = error.message.match(/<Code>(.*)<\/Code>(?:.*<Message>(.*)<\/Message>)?/m)
+              case match[1]
+              when 'CertificateNotFound', 'NoSuchEntity'
+                raise Fog::AWS::IAM::NotFound.slurp(error, match[2])
+              when 'EntityAlreadyExists'
+                raise Fog::AWS::IAM::EntityAlreadyExists.slurp(error, match[2])
+              when 'KeyPairMismatch'
+                raise Fog::AWS::IAM::KeyPairMismatch.slurp(error, match[2])
+              when 'LimitExceeded'
+                raise Fog::AWS::IAM::LimitExceeded.slurp(error, match[2])
+              when 'MalformedCertificate'
+                raise Fog::AWS::IAM::MalformedCertificate.slurp(error, match[2])
+              else
+                raise Fog::AWS::IAM::Error.slurp(error, "#{match[1]} => #{match[2]}") if match[1]
+                raise
+              end
+            else
+              raise
+            end
+          end
+
+
         end
 
       end

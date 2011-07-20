@@ -1,7 +1,4 @@
 Shindo.tests('AWS::IAM | server certificate requests', ['aws']) do
-
-  pending if Fog.mocking?
-
   @key_name = 'fog-test'
 
   @certificate_format = {
@@ -10,15 +7,23 @@ Shindo.tests('AWS::IAM | server certificate requests', ['aws']) do
   'ServerCertificateId' => String,
   'ServerCertificateName' => String,
   'UploadDate' => Time
-}
+  }
   @upload_format = {
     'Certificate' => @certificate_format,
     'RequestId' => String
   }
+
   tests('#upload_server_certificate').formats(@upload_format) do
     public_key  = AWS::IAM::SERVER_CERT_PUBLIC_KEY
     private_key = AWS::IAM::SERVER_CERT_PRIVATE_KEY
     AWS[:iam].upload_server_certificate(public_key, private_key, @key_name).body
+  end
+
+  tests('#get_server_certificate').formats(@upload_format) do
+    tests('raises NotFound').raises(Fog::AWS::IAM::NotFound) do
+      AWS[:iam].get_server_certificate("#{@key_name}fake")
+    end
+    AWS[:iam].get_server_certificate(@key_name).body
   end
 
   @list_format = { 'Certificates' => [@certificate_format] }
